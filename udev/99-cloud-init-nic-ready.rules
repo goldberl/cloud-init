@@ -1,0 +1,21 @@
+# Cloud-init NIC readiness for AWS and GCP
+# Only trigger for NIC devices, skip loopback
+ACTION!="add|change", GOTO="cloud_init_end"
+SUBSYSTEM!="net", GOTO="cloud_init_end"
+KERNEL=="lo", GOTO="cloud_init_end"
+
+# Filter for AWS/GCP NIC drivers
+ENV{ID_NET_DRIVER}=="ena", GOTO="cloud_init_nic_ready"
+ENV{ID_NET_DRIVER}=="idpf", GOTO="cloud_init_nic_ready"
+
+# If not matched, skip
+GOTO="cloud_init_end"
+
+# Label for NIC ready
+LABEL="cloud_init_nic_ready"
+ENV{cloud_init_nic}="ready"
+RUN+="/bin/sh -c 'echo $(date) NIC ready >> /run/cloud-init/nic-ready.log; mkdir -p /run/cloud-init && touch /run/cloud-init/network-ready'"
+GOTO="cloud_init_end"
+
+# End label
+LABEL="cloud_init_end"

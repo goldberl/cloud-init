@@ -1,0 +1,14 @@
+[Unit]
+Description=Wait for NIC readiness before cloud-init-local
+DefaultDependencies=no
+Before=cloud-init-local.service
+After=systemd-udev-settle.service
+ConditionPathExists=!/etc/cloud/cloud-init.disabled
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/test -f /run/cloud-init/network-ready
+RemainAfterExit=yes
+
+[Install]
+WantedBy=cloud-init.target
