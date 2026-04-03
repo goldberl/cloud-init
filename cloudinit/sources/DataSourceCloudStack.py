@@ -14,6 +14,7 @@
 
 import logging
 import os
+import subprocess
 import time
 from contextlib import suppress
 from socket import gaierror, getaddrinfo, inet_ntoa
@@ -30,6 +31,50 @@ from cloudinit.sources.helpers import ec2
 LOG = logging.getLogger(__name__)
 
 CLOUD_STACK_DMI_NAME = "CloudStack"
+
+
+def get_nmcli_dhcp_info(interface):
+    """
+    Executes nmcli, logs the raw results, and parses by column.
+    """
+    LOG.debug("NMCLI_DEBUG: Starting DHCP lookup for interface: %s", interface)
+    if not interface:
+        return {}
+
+    try:
+        cmd = ["nmcli", "--fields", "DHCP4", "device", "show", interface]
+
+        # We use subprocess directly to avoid the 'module not callable' error
+        # capture_output=True gives us stdout and stderr
+        result_proc = subprocess.run(
+            cmd, capture_output=True, text=True, check=False
+        )
+        out = result_proc.stdout
+
+        # --- PRINTS THE RAW RESULTS TO DEBUG LOG ---
+        if out:
+            LOG.debug("NMCLI_DEBUG: RAW COMMAND OUTPUT BEGIN:\n%s", out)
+        else:
+            LOG.debug("NMCLI_DEBUG: Command returned no output.")
+            return {}
+
+        result = {}
+        for line in out.strip().splitlines():
+            parts = line.split()
+            # Positional parsing: DHCP4.OPTION[N]: KEY = VALUE
+            if len(parts) >= 4:
+                key = parts[1].strip().lower().replace("-", "_")
+                value = " ".join(parts[3:])  # Join in case value has spaces
+                result[key] = value
+                LOG.debug(
+                    "NMCLI_DEBUG: Parsed valid pair -> %s: %s", key, value
+                )
+
+        return result
+
+    except Exception as e:
+        LOG.debug("NMCLI_DEBUG: Critical failure: %s", str(e))
+        return {}
 
 
 class CloudStackPasswordServerClient:
@@ -125,6 +170,13 @@ class DataSourceCloudStack(sources.DataSource):
                 return domain_name.strip()
         except (NoDHCPLeaseError, FileNotFoundError, AttributeError):
             pass
+
+        # Fallback to nmcli
+        LOG.debug("Try obtaining domain name from nmcli")
+        nm_options = get_nmcli_dhcp_info(self.distro.fallback_interface)
+        domain_name = nm_options.get("domain_name")
+        if domain_name:
+            return domain_name.strip()
 
         LOG.debug("No domain name found in any DHCP lease; returning empty")
         return ""
@@ -326,6 +378,15 @@ def get_vr_address(distro):
             "Found SERVER_ADDRESS '%s' via networkd_leases", latest_address
         )
         return latest_address
+
+    # Try NetworkManager (nmcli) third...
+    ifname = distro.fallback_interface or "ens3"
+    LOG.debug("Using nmcli positional parser fallback on %s", ifname)
+    nm_options = get_nmcli_dhcp_info(ifname)
+    addr = nm_options.get("dhcp_server_identifier")
+    if addr:
+        LOG.debug("Found VR via nmcli positional parser: %s", addr)
+        return addr
 
     # Try dhcp lease files next
     # get_key_from_latest_lease() needs a Distro object to know which directory
