@@ -10,7 +10,7 @@ Wants=sshd-keygen.service
 Wants=sshd.service
 After=cloud-init-local.service
 {% if variant not in ["ubuntu", "raspberry-pi-os"] %}
-After=systemd-networkd-wait-online.service
+After=NetworkManager-wait-online.service
 {% endif %}
 {% if variant in ["ubuntu", "unknown", "debian", "raspberry-pi-os"] %}
 After=networking.service
@@ -32,7 +32,6 @@ Before=sshd-keygen.service
 Before=sshd.service
 Before=systemd-user-sessions.service
 {% if variant in ["ubuntu", "unknown", "debian", "raspberry-pi-os"] %}
-Before=sysinit.target
 Before=shutdown.target
 Conflicts=shutdown.target
 {% endif %}
