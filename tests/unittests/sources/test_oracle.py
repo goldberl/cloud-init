@@ -531,7 +531,7 @@ class TestNetworkConfigFromOpcImds:
         assert 9000 == secondary_cfg["mtu"]
         assert 1 == len(secondary_cfg["subnets"])
         assert (
-            "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a/128"
+            "2603:c020:400d:5d7e:aacc:8e5f:3b1b:3a4a/64"
             == secondary_cfg["subnets"][0]["address"]
         )
         assert "static" == secondary_cfg["subnets"][0]["type"]

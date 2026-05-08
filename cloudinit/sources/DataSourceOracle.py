@@ -364,7 +364,24 @@ class DataSourceOracle(sources.DataSource):
 
         vnics_data = self._vnics_data if set_primary else self._vnics_data[1:]
 
-        # If the metadata address is an IPv6 address
+        def _prefixlen_from_cidr_or_address(
+            *,
+            cidr: Optional[str],
+            address: str,
+            fallback_label: str,
+        ) -> int:
+            if cidr:
+                try:
+                    return ipaddress.ip_network(cidr).prefixlen
+                except ValueError:
+                    LOG.warning(
+                        "Invalid %s %s for VNIC %s; falling back to host "
+                        "address prefix length.",
+                        fallback_label,
+                        cidr,
+                        vnic_dict.get("vnicId", "<unknown>"),
+                    )
+            return ipaddress.ip_network(address).prefixlen
 
         for index, vnic_dict in enumerate(vnics_data):
             is_primary = set_primary and index == 0
@@ -379,12 +396,25 @@ class DataSourceOracle(sources.DataSource):
                 )
                 continue
             name = interfaces_by_mac[mac_address]
-            if is_ipv6_only:
-                network = ipaddress.ip_network(
-                    vnic_dict["ipv6Addresses"][0],
+            ipv4_prefixlen = None
+            ipv6_prefixlen = None
+            if vnic_dict.get("privateIp"):
+                ipv4_prefixlen = _prefixlen_from_cidr_or_address(
+                    cidr=vnic_dict.get("subnetCidrBlock"),
+                    address=vnic_dict["privateIp"],
+                    fallback_label="subnetCidrBlock",
                 )
-            else:
-                network = ipaddress.ip_network(vnic_dict["subnetCidrBlock"])
+            if vnic_dict.get("ipv6Addresses"):
+                ipv6_subnet_cidr = vnic_dict.get("ipv6SubnetCidrBlock")
+                if not ipv6_subnet_cidr:
+                    ipv6_subnet_cidrs = vnic_dict.get("ipv6SubnetCidrBlocks")
+                    if ipv6_subnet_cidrs:
+                        ipv6_subnet_cidr = ipv6_subnet_cidrs[0]
+                ipv6_prefixlen = _prefixlen_from_cidr_or_address(
+                    cidr=ipv6_subnet_cidr,
+                    address=vnic_dict["ipv6Addresses"][0],
+                    fallback_label="ipv6SubnetCidrBlock",
+                )
 
             if is_primary:
                 if is_ipv6_only:
@@ -399,7 +429,7 @@ class DataSourceOracle(sources.DataSource):
                             "type": "static",
                             "address": (
                                 f"{vnic_dict['privateIp']}/"
-                                f"{network.prefixlen}"
+                                f"{ipv4_prefixlen}"
                             ),
                         }
                     )
@@ -409,7 +439,7 @@ class DataSourceOracle(sources.DataSource):
                             "type": "static",
                             "address": (
                                 f"{vnic_dict['ipv6Addresses'][0]}/"
-                                f"{network.prefixlen}"
+                                f"{ipv6_prefixlen}"
                             ),
                         }
                     )
